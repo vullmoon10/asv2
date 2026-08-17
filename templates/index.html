@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>AUTOSCORE V2 - Python Local DB</title>
+    <style>
+        :root { --primary: #4f46e5; --danger: #ef4444; --success: #10b981; --bg-color: #f3f4f6; }
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: sans-serif; }
+        body { background-color: var(--bg-color); color: #1f2937; padding: 20px; }
+        .container { max-width: 600px; margin: 0 auto; background: white; padding: 24px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        .dashboard-container { max-width: 900px; }
+        header { text-align: center; margin-bottom: 20px; position: relative; }
+        h1 { color: var(--primary); font-size: 2rem; }
+        .nav-buttons { position: absolute; top: 0; right: 0; }
+        .form-group { margin-bottom: 15px; }
+        label { display: block; font-weight: bold; margin-bottom: 5px; }
+        input { width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 6px; }
+        .btn { padding: 10px 15px; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; color: white; display: inline-block; text-align: center; }
+        .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        .btn-primary { background: var(--primary); } .btn-danger { background: var(--danger); } .btn-success { background: var(--success); width: 100%; }
+        .flex { display: flex; gap: 10px; } .flex-1 { flex: 1; }
+        .timer-display { font-family: monospace; font-size: 3rem; text-align: center; background: #f8fafc; padding: 20px; border-radius: 8px; border: 2px solid #e5e7eb; margin: 15px 0; }
+        .hidden { display: none !important; }
+        .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 15px; }
+        .stat-box { background: #f8fafc; padding: 15px; text-align: center; border-radius: 8px; border: 1px solid #e5e7eb; }
+        .stat-value { font-size: 1.5rem; font-weight: bold; }
+        img.graph { width: 100%; border-radius: 8px; border: 1px solid #ccc; margin-top: 10px; }
+        .error { color: var(--danger); text-align: center; margin-top: 10px; }
+        table { width: 100%; border-collapse: collapse; margin-top: 15px; }
+        th, td { padding: 10px; border-bottom: 1px solid #ddd; text-align: center; }
+        th { background: #f8fafc; }
+    </style>
+</head>
+<body>
+
+    <!-- 1. 메인 문제 풀이 화면 -->
+    <div class="container" id="view-main">
+        <header>
+            <h1>AUTOSCORE V2</h1>
+            <p>Python Local Database Edition</p>
+            <div class="nav-buttons">
+                <button class="btn btn-primary" onclick="switchView('dashboard')">대시보드</button>
+            </div>
+        </header>
+
+        <div class="form-group">
+            <label>과목</label>
+            <input type="text" id="subject" placeholder="과목명 (예: 수학)">
+        </div>
+        <div class="flex">
+            <button class="btn btn-primary flex-1" id="btn-start">START</button>
+            <button class="btn btn-danger flex-1" id="btn-stop" disabled>STOP</button>
+        </div>
+        <div class="timer-display" id="timer-display">00:00:00</div>
+        
+        <div class="flex">
+            <div class="form-group flex-1"><label>문제 수</label><input type="number" id="qcnt" disabled></div>
+            <div class="form-group flex-1"><label>정답 수</label><input type="number" id="ac" disabled></div>
+        </div>
+        
+        <button class="btn btn-success" id="btn-analyze" disabled>ANALYZE & SAVE</button>
+        <div id="error-msg" class="error"></div>
+
+        <!-- 결과 표시창 -->
+        <div id="result-section" class="hidden" style="margin-top: 20px;">
+            <h2 style="text-align: center; color: var(--success);">분석 및 저장 완료!</h2>
+            <div class="stats-grid">
+                <div class="stat-box">정답률<br><span class="stat-value" id="res-acc">-</span></div>
+                <div class="stat-box">QPM<br><span class="stat-value" id="res-qpm">-</span></div>
+            </div>
+            <p style="text-align: center;">총 소요 시간: <span id="res-time"></span> | MPQ: <span id="res-mpq"></span>초</p>
+            <div class="flex" style="margin-top: 15px;">
+                <button class="btn btn-primary flex-1" onclick="resetSession()">새 문제 풀이</button>
+                <a class="btn btn-primary flex-1" id="btn-txt" target="_blank" style="text-decoration:none;">TXT 저장본 보기</a>
+            </div>
+        </div>
+    </div>
+
+    <!-- 2. 대시보드 화면 -->
+    <div class="container dashboard-container hidden" id="view-dashboard">
+        <header>
+            <h1>학습 대시보드</h1>
+            <p>CSV 파일에 저장된 영구 기록입니다.</p>
+            <div class="nav-buttons">
+                <button class="btn btn-primary" onclick="switchView('main')">돌아가기</button>
+            </div>
+        </header>
+
+        <div class="stats-grid">
+            <div class="stat-box">총 세션<br><span class="stat-value" id="dash-total">0</span></div>
+            <div class="stat-box">평균 정답률<br><span class="stat-value" id="dash-acc">0%</span></div>
+        </div>
+
+        <div class="flex">
+            <div class="flex-1">
+                <h3>정답률 그래프 (Matplotlib)</h3>
+                <img id="graph-acc" class="graph" alt="그래프가 없습니다">
+            </div>
+            <div class="flex-1">
+                <h3>QPM 그래프 (Matplotlib)</h3>
+                <img id="graph-qpm" class="graph" alt="그래프가 없습니다">
+            </div>
+        </div>
+        
+        <!-- [추가됨] 누락되었던 2가지 그래프 영역 -->
+        <div class="flex" style="margin-top: 15px;">
+            <div class="flex-1">
+                <h3>MPQ 그래프 (Matplotlib)</h3>
+                <img id="graph-mpq" class="graph" alt="그래프가 없습니다">
+            </div>
+            <div class="flex-1">
+                <h3>정답/오답 비교 (Matplotlib)</h3>
+                <img id="graph-cw" class="graph" alt="그래프가 없습니다">
+            </div>
+        </div>
+
+        <h3>최근 기록 (표)</h3>
+        <table>
+            <thead><tr><th>날짜</th><th>과목</th><th>문제</th><th>정답</th><th>정답률</th></tr></thead>
+            <tbody id="history-tbody"></tbody>
+        </table>
+    </div>
+
+    <script>
+        let visualTimer = null;
+        let visualStart = 0;
+        let finalTime = 0;
+
+        function formatTime(s) {
+            let h = Math.floor(s/3600), m = Math.floor((s%3600)/60), sec = Math.floor(s%60);
+            return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}`;
+        }
+
+        function switchView(view) {
+            document.getElementById('view-main').classList.add('hidden');
+            document.getElementById('view-dashboard').classList.add('hidden');
+            document.getElementById('view-' + view).classList.remove('hidden');
+            if(view === 'dashboard') loadDashboard();
+        }
+
+        // START
+        document.getElementById('btn-start').addEventListener('click', async () => {
+            const subject = document.getElementById('subject').value;
+            if(!subject) return document.getElementById('error-msg').innerText = "과목을 입력하세요!";
+            document.getElementById('error-msg').innerText = "";
+            
+            const res = await fetch('/api/start', {
+                method: 'POST', headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({subject: subject})
+            });
+            
+            if(res.ok) {
+                document.getElementById('subject').disabled = true;
+                document.getElementById('btn-start').disabled = true;
+                document.getElementById('btn-stop').disabled = false;
+                visualStart = Date.now();
+                visualTimer = setInterval(() => {
+                    document.getElementById('timer-display').innerText = formatTime((Date.now() - visualStart)/1000);
+                }, 1000);
+            }
+        });
+
+        // STOP
+        document.getElementById('btn-stop').addEventListener('click', async () => {
+            const res = await fetch('/api/stop', { method: 'POST' });
+            const data = await res.json();
+            
+            if(data.success) {
+                clearInterval(visualTimer);
+                finalTime = data.timer;
+                document.getElementById('timer-display').innerText = formatTime(finalTime);
+                document.getElementById('btn-stop').disabled = true;
+                document.getElementById('qcnt').disabled = false;
+                document.getElementById('ac').disabled = false;
+                document.getElementById('btn-analyze').disabled = false;
+            }
+        });
+
+        // ANALYZE (파이썬으로 데이터 전송 및 CSV 저장)
+        document.getElementById('btn-analyze').addEventListener('click', async () => {
+            const subject = document.getElementById('subject').value;
+            const qcnt = document.getElementById('qcnt').value;
+            const ac = document.getElementById('ac').value;
+            
+            document.getElementById('btn-analyze').disabled = true;
+            document.getElementById('btn-analyze').innerText = "분석 및 저장 중...";
+
+            const res = await fetch('/api/analyze', {
+                method: 'POST', headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({subject, qcnt, ac, timer: finalTime})
+            });
+            const data = await res.json();
+
+            if(data.success) {
+                const r = data.results;
+                document.getElementById('res-acc').innerText = r.accuracy.toFixed(2) + '%';
+                document.getElementById('res-qpm').innerText = r.qpm.toFixed(2);
+                document.getElementById('res-time').innerText = formatTime(r.timer);
+                document.getElementById('res-mpq').innerText = r.mpq.toFixed(2);
+                document.getElementById('btn-txt').href = `/results/${r.txt_file}`;
+                
+                document.getElementById('qcnt').disabled = true;
+                document.getElementById('ac').disabled = true;
+                document.getElementById('result-section').classList.remove('hidden');
+                document.getElementById('btn-analyze').innerText = "ANALYZE & SAVE";
+            } else {
+                document.getElementById('error-msg').innerText = data.error;
+                document.getElementById('btn-analyze').disabled = false;
+                document.getElementById('btn-analyze').innerText = "ANALYZE & SAVE";
+            }
+        });
+
+        function resetSession() {
+            document.getElementById('subject').disabled = false; document.getElementById('subject').value = '';
+            document.getElementById('btn-start').disabled = false; document.getElementById('btn-stop').disabled = true;
+            document.getElementById('qcnt').disabled = true; document.getElementById('qcnt').value = '';
+            document.getElementById('ac').disabled = true; document.getElementById('ac').value = '';
+            document.getElementById('btn-analyze').disabled = true; document.getElementById('timer-display').innerText = "00:00:00";
+            document.getElementById('result-section').classList.add('hidden');
+        }
+
+        // 파이썬(CSV)에서 데이터 가져와서 대시보드 그리기
+        async function loadDashboard() {
+            const res = await fetch('/api/dashboard');
+            const data = await res.json();
+            
+            if(data.success) {
+                const records = data.records;
+                document.getElementById('dash-total').innerText = records.length;
+                
+                if(records.length > 0) {
+                    let sumAcc = 0;
+                    records.forEach(r => sumAcc += parseFloat(r.accuracy));
+                    document.getElementById('dash-acc').innerText = (sumAcc / records.length).toFixed(2) + '%';
+                    
+                    // 파이썬 Matplotlib이 만든 이미지 불러오기 (캐시 방지)
+                    const t = Date.now();
+                    document.getElementById('graph-acc').src = `/graphs/accuracy.png?t=${t}`;
+                    document.getElementById('graph-qpm').src = `/graphs/qpm.png?t=${t}`;
+                    
+                    // [추가됨] 새로운 이미지 2개 로드
+                    document.getElementById('graph-mpq').src = `/graphs/mpq.png?t=${t}`;
+                    document.getElementById('graph-cw').src = `/graphs/correct_wrong.png?t=${t}`;
+
+                    // 테이블 채우기
+                    const tbody = document.getElementById('history-tbody');
+                    tbody.innerHTML = '';
+                    [...records].reverse().slice(0, 10).forEach(r => {
+                        tbody.innerHTML += `<tr><td>${r.date}</td><td>${r.subject}</td><td>${r.qcnt}</td><td>${r.ac}</td><td>${parseFloat(r.accuracy).toFixed(1)}%</td></tr>`;
+                    });
+                }
+            }
+        }
+    </script>
+</body>
+</html>
